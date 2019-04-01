@@ -1,149 +1,176 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEngine;
-using KModkit;
-using System;
 
-public class simonScramblesScript : MonoBehaviour
-{
+using Random = UnityEngine.Random;
+
+public class simonScramblesScript : MonoBehaviour {
     public KMBombInfo info;
     public KMBombModule module;
-    public KMAudio audio;
-    public Light[] lights3 = new Light[4];
+    public KMAudio bombAudio;
+    public Light[] buttonLights;
     public KMSelectable[] buttons;
-    private int[] sequence;
+    public KMRuleSeedable RuleSeedable;
+
+    int[] sequence = new int[10];
+    readonly string[] colorNames = { "Blue", "Yellow", "Red", "Green" };
+    float beep;
+    Coroutine lightShow = null;
+    Coroutine nowLight = null;
+    int currentInt;
+    readonly int[,] colorTable = {
+        { 1, 3, 0, 2 },
+        { 3, 0, 1, 2 },
+        { 2, 3, 1, 0 },
+        { 2, 1, 3, 0 },
+        { 2, 0, 3, 1 },
+        { 0, 1, 2, 3 },
+        { 1, 3, 0, 2 },
+        { 1, 0, 3, 2 },
+        { 2, 1, 0, 3 },
+        { 3, 2, 1, 0 }
+    };
+
+    MonoRandom rnd;
+
+    bool moduleSolved;
     static int moduleIdCounter = 1;
     int moduleId;
-    private bool moduleSolved;
-    private int beep = 500;
-    private int currentInt;
-    private string answer = "";
-    int[,] array2Da = new int[,] { { 1,3,0,2 }, {3,0,1,2 }, {2,3,1,0 }, {2,1,3,0}, {2,0,3,1 }, {0,1,2,3 }, { 1,3,0,2}, {1,0,3,2 }, { 2, 1, 0, 3 }, { 3,2,1,0} };
-    private string TwitchHelpMessage = "To submit red blue green yellow use '!{0} rbgy'.";
-    private KMSelectable[] press;
-    void Awake()
-    {
-        lights3[0].enabled = false;
-        lights3[1].enabled = false;
-        lights3[2].enabled = false;
-        lights3[3].enabled = false;
-        sequence = new int[10];
+
+    private void Awake() {
         moduleId = moduleIdCounter++;
-        for (int i = 0; i < 10; i++)
-        {
-            sequence[i] = UnityEngine.Random.Range(0, 4);
-            
-            
+
+        for (var i = 0; i < buttonLights.Length; i++)
+            buttonLights[i].enabled = false;
+
+        rnd = RuleSeedable.GetRNG();
+        Debug.LogFormat("[Simon Scrambles #{0}] Using rule seed: {1}", moduleId, rnd.Seed);
+
+        if (rnd.Seed != 1) {
+            var nowColors = rnd.ShuffleFisherYates(Enumerable.Range(0, 4).ToArray());
+
+            for (var i = 0; i < colorTable.GetLength(0); i++) {
+                for (var j = 0; j < colorTable.GetLength(1); j++)
+                    colorTable[i, j] = nowColors[j];
+
+                nowColors = rnd.ShuffleFisherYates(nowColors);
+            }
         }
-        
-        Debug.LogFormat("[simonScrambles #{0}] 0 = blue, 1 = yellow, 2 = red, 3 = green", moduleId);
-        Debug.LogFormat("[simonScrambles #{0}] sequence is " + sequence[0]+ sequence[1] + sequence[2] + sequence[3] + sequence[4] + sequence[5] + sequence[6] + sequence[7] + sequence[8] + sequence[9], moduleId);
-        for (int i = 0; i < 10; i++)
-        {
-            answer = answer + array2Da[i, sequence[i]];
+
+        HandleSequence();
+
+        foreach (KMSelectable key in buttons) {
+            key.OnInteract += delegate () {
+                KeyPressed(key);
+
+                return false;
+            };
         }
-        Debug.LogFormat("[simonScrambles #{0}] answer is " + answer, moduleId);
-        foreach (KMSelectable key in buttons)
-        {
-            key.OnInteract += delegate () { keyPressed(key); return false; };
+    }
+
+    void HandleSequence() {
+        beep = 0f;
+
+        for (var i = 0; i < 10; i++)
+            sequence[i] = Random.Range(0, 4);
+
+        Debug.LogFormat("[Simon Scrambles #{0}] Sequence is: {1}", moduleId, sequence.Select(x => colorNames[x]).Join(", "));
+        Debug.LogFormat("[Simon Scrambles #{0}] Answer is: {1}", moduleId, sequence.Select((x, y) => colorNames[colorTable[y, x]]).Join(", "));
+    }
+
+    void Update() {
+        if (lightShow == null) {
+            beep += Time.deltaTime;
+
+            if (!moduleSolved && beep >= 5f) {
+                lightShow = StartCoroutine(LightSequence());
+                beep = 0f;
+            }
         }
     }
 
-    void Start()
-    {
+    IEnumerator LightSequence() {
+        for (var i = 0; i < 10; i++) {
+            StartCoroutine(FlashLight(sequence[i]));
 
-    }
-    void Update()
-    {
-        beep++;
-        if (beep == 1000 && !moduleSolved)
-        {
-            StartCoroutine(lights());
-            beep = 0;
+            yield return new WaitForSeconds(1.1f);
         }
-        
 
+        lightShow = null;
     }
-    IEnumerator lights()
-    {
-        for (int i = 0; i < 10; i++)
-        {
-           
-            lights3[sequence[i]].enabled = true;
-            yield return new WaitForSeconds(1);
-            lights3[sequence[i]].enabled = false;
-            yield return new WaitForSeconds(.1f);
+
+    IEnumerator FlashLight(int nowFlash) {
+        buttonLights[nowFlash].enabled = true;
+
+        yield return new WaitForSeconds(0.9f);
+
+        buttonLights[nowFlash].enabled = false;
+        nowLight = null;
+    }
+
+    void KeyPressed(KMSelectable key) {
+        bombAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, transform);
+
+        if (moduleSolved) return;
+
+        var nowButton = Array.IndexOf(buttons, key);
+        Debug.LogFormat("[Simon Scrambles #{0}] You pressed {1}.", moduleId, colorNames[nowButton]);
+
+        if (lightShow != null) {
+            StopCoroutine(lightShow);
+            lightShow = null;
+        }
+
+        beep = 0f;
+
+        for (var i = 0; i < buttonLights.Length; i++)
+            buttonLights[i].enabled = false;
+
+        if (nowLight != null) {
+            StopCoroutine(nowLight);
+            nowLight = null;
+        }
+
+        nowLight = StartCoroutine(FlashLight(nowButton));
+
+        if (colorTable[currentInt, sequence[currentInt]] == nowButton) {
+            Debug.LogFormat("[Simon Scrambles #{0}] That was correct.", moduleId);
+
+            if (++currentInt == 10) {
+                module.HandlePass();
+                moduleSolved = true;
+                Debug.LogFormat("[Simon Scrambles #{0}] Module solved!", moduleId);
+            }
+        } else {
+            module.HandleStrike();
+            Debug.LogFormat("[Simon Scrambles #{0}] That was incorrect. The module has been resetted.", moduleId);
+            currentInt = 0;
+            HandleSequence();
         }
     }
-    void keyPressed(KMSelectable key)
-    {
-        audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, transform);
-        if (!moduleSolved)
-        {
-            Debug.LogFormat("[simonScrambles #{0}] {1} has been put in", moduleId, Array.IndexOf(buttons, key));
 
-            if (array2Da[currentInt, sequence[currentInt]] == Array.IndexOf(buttons, key))
-            {
+#pragma warning disable 414
+    private readonly string TwitchHelpMessage = @"Submit by ""!{0} RGBY..."" (initial letter of colors to press)";
+#pragma warning restore 414
 
-                Debug.LogFormat("[simonScrambles #{0}] correct", moduleId);
+    KMSelectable[] ProcessTwitchCommand(string command) {
+        command = command.ToLowerInvariant().Trim();
 
+        if (Regex.IsMatch(command, @"^[(r|y|g|b)]+$")) {
+            var pressList = new List<KMSelectable>();
 
-
-            } else
-            {
-                audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.Strike, transform);
-                module.HandleStrike();
-                currentInt = -1;
-                Debug.LogFormat("[simonScrambles #{0}] wrong, reset", moduleId);
+            for (var i = 0; i < command.Length; i++) {
+                if (Regex.IsMatch(command[i].ToString(), @"^(r|y|g|b)$")) {
+                    pressList.Add(buttons[Array.IndexOf(colorNames, colorNames[Array.FindIndex(colorNames, x => x.ToLowerInvariant().StartsWith(command[i].ToString()))])]);
+                }
             }
 
-
+            return (pressList.Count > 0) ? pressList.ToArray() : null;
         }
 
-        currentInt++;
-        if (currentInt == 10)
-        {
-            module.HandlePass();
-            moduleSolved = true;
-            Debug.LogFormat("[simonScrambles #{0}] solved", moduleId);
-        }
-    }
-
-    KMSelectable[] ProcessTwitchCommand(string command)
-    {
-        press = new KMSelectable[15];
-        for (int i = 0; i < command.Length; i++)
-        {
-            if (command[i].ToString() == "r")
-            {
-                press[i] = buttons[2];
-            }
-            if (command[i].ToString() == "y")
-            {
-                press[i] = buttons[1];
-            }
-            if (command[i].ToString() == "b")
-            {
-                press[i] = buttons[0];
-            }
-            if (command[i].ToString() == "g")
-            {
-                press[i] = buttons[3];
-            }
-
-        }
-        return press;
-    }
-    void TwitchHandleForcedSolve()
-    {
-        
-        for (int i = 0; i < 10; i++)
-        {
-            buttons[Int32.Parse(answer[i].ToString())].OnInteract();
-            
-        }
-        
+        return null;
     }
 }
-
