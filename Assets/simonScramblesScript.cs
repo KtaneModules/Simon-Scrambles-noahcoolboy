@@ -20,6 +20,8 @@ public class simonScramblesScript : MonoBehaviour
     private int currentInt;
     private string answer = "";
     int[,] array2Da = new int[,] { { 1,3,0,2 }, {3,0,1,2 }, {2,3,1,0 }, {2,1,3,0}, {2,0,3,1 }, {0,1,2,3 }, { 1,3,0,2}, {1,0,3,2 }, { 2, 1, 0, 3 }, { 3,2,1,0} };
+    private string TwitchHelpMessage = "To submit red blue green yellow use '!{0} rbgy'.";
+    private KMSelectable[] press;
     void Awake()
     {
         lights3[0].enabled = false;
@@ -92,7 +94,7 @@ public class simonScramblesScript : MonoBehaviour
             {
                 audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.Strike, transform);
                 module.HandleStrike();
-                currentInt = 0;
+                currentInt = -1;
                 Debug.LogFormat("[simonScrambles #{0}] wrong, reset", moduleId);
             }
 
@@ -106,6 +108,42 @@ public class simonScramblesScript : MonoBehaviour
             moduleSolved = true;
             Debug.LogFormat("[simonScrambles #{0}] solved", moduleId);
         }
+    }
+
+    KMSelectable[] ProcessTwitchCommand(string command)
+    {
+        press = new KMSelectable[15];
+        for (int i = 0; i < command.Length; i++)
+        {
+            if (command[i].ToString() == "r")
+            {
+                press[i] = buttons[2];
+            }
+            if (command[i].ToString() == "y")
+            {
+                press[i] = buttons[1];
+            }
+            if (command[i].ToString() == "b")
+            {
+                press[i] = buttons[0];
+            }
+            if (command[i].ToString() == "g")
+            {
+                press[i] = buttons[3];
+            }
+
+        }
+        return press;
+    }
+    void TwitchHandleForcedSolve()
+    {
+        
+        for (int i = 0; i < 10; i++)
+        {
+            buttons[Int32.Parse(answer[i].ToString())].OnInteract();
+            
+        }
+        
     }
 }
 
