@@ -10,11 +10,14 @@ using Random = UnityEngine.Random;
 public class simonScramblesScript : MonoBehaviour {
     public KMBombInfo info;
     public KMBombModule module;
+    public KMColorblindMode colorblind;
     public KMAudio bombAudio;
     public Light[] buttonLights;
     public KMSelectable[] buttons;
     public KMRuleSeedable RuleSeedable;
+    public GameObject[] colorblindTexts;
 
+    bool colorblindActive = false;
     int[] sequence = new int[10];
     readonly string[] colorNames = { "Blue", "Yellow", "Red", "Green" };
     float beep;
@@ -42,6 +45,7 @@ public class simonScramblesScript : MonoBehaviour {
 
     private void Awake() {
         moduleId = moduleIdCounter++;
+        colorblindActive = colorblind.ColorblindModeActive;
 
         for (var i = 0; i < buttonLights.Length; i++)
             buttonLights[i].enabled = false;
@@ -60,8 +64,6 @@ public class simonScramblesScript : MonoBehaviour {
             }
         }
 
-        HandleSequence();
-
         foreach (KMSelectable key in buttons) {
             key.OnInteract += delegate () {
                 KeyPressed(key);
@@ -69,6 +71,8 @@ public class simonScramblesScript : MonoBehaviour {
                 return false;
             };
         }
+
+        module.OnActivate += OnActivate;
     }
 
     void HandleSequence() {
@@ -90,6 +94,19 @@ public class simonScramblesScript : MonoBehaviour {
                 beep = 0f;
             }
         }
+    }
+
+    void OnActivate()
+    {
+        Debug.LogFormat("[Simon Scrambles #{0}] Colorblind Mode: {1}", moduleId, colorblindActive);
+        if (colorblindActive)
+        {
+            foreach(GameObject text in colorblindTexts)
+            {
+                text.SetActive(true);
+            }
+        }
+        HandleSequence();
     }
 
     IEnumerator LightSequence() {
@@ -152,12 +169,37 @@ public class simonScramblesScript : MonoBehaviour {
         }
     }
 
-#pragma warning disable 414
-    private readonly string TwitchHelpMessage = @"Submit by ""!{0} RGBY..."" (initial letter of colors to press)";
-#pragma warning restore 414
+    //twitch plays
+    #pragma warning disable 414
+    private readonly string TwitchHelpMessage = @"!{0} RBGY [Presses the buttons red, blue, green, and yellow in that order] | !{0} colorblind [Toggles colorblind mode]";
+    #pragma warning restore 414
 
-    KMSelectable[] ProcessTwitchCommand(string command) {
+    IEnumerator ProcessTwitchCommand(string command) {
+
+        if (Regex.IsMatch(command, @"^\s*colorblind\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        {
+            yield return null;
+            Debug.LogFormat("[Simon Scrambles #{0}] Toggled colorblind mode! (TP)", moduleId);
+            if (colorblindActive)
+            {
+                colorblindActive = false;
+                foreach (GameObject text in colorblindTexts)
+                {
+                    text.SetActive(false);
+                }
+            }
+            else
+            {
+                colorblindActive = true;
+                foreach (GameObject text in colorblindTexts)
+                {
+                    text.SetActive(true);
+                }
+            }
+        }
+
         command = command.ToLowerInvariant().Trim();
+        command = command.Replace(" ","");
 
         if (Regex.IsMatch(command, @"^[(r|y|g|b)]+$")) {
             var pressList = new List<KMSelectable>();
@@ -168,9 +210,21 @@ public class simonScramblesScript : MonoBehaviour {
                 }
             }
 
-            return (pressList.Count > 0) ? pressList.ToArray() : null;
+            if(pressList.Count > 0)
+            {
+                yield return null;
+                yield return pressList.ToArray();
+            }
         }
 
-        return null;
+    }
+
+    IEnumerator TwitchHandleForcedSolve()
+    {
+        for(int i = currentInt; i < 10; i++)
+        {
+            buttons[colorTable[i, sequence[i]]].OnInteract();
+            yield return new WaitForSeconds(0.1f);
+        }
     }
 }
