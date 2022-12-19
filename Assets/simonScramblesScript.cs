@@ -10,14 +10,11 @@ using Random = UnityEngine.Random;
 public class simonScramblesScript : MonoBehaviour {
     public KMBombInfo info;
     public KMBombModule module;
-    public KMColorblindMode colorblind;
     public KMAudio bombAudio;
     public Light[] buttonLights;
     public KMSelectable[] buttons;
     public KMRuleSeedable RuleSeedable;
-    public GameObject[] colorblindTexts;
 
-    bool colorblindActive = false;
     int[] sequence = new int[10];
     readonly string[] colorNames = { "Blue", "Yellow", "Red", "Green" };
     float beep;
@@ -64,6 +61,8 @@ public class simonScramblesScript : MonoBehaviour {
             }
         }
 
+        HandleSequence();
+
         foreach (KMSelectable key in buttons) {
             key.OnInteract += delegate () {
                 KeyPressed(key);
@@ -71,8 +70,13 @@ public class simonScramblesScript : MonoBehaviour {
                 return false;
             };
         }
+    }
 
-        module.OnActivate += OnActivate;
+    void Start()
+    {
+        float scalar = transform.lossyScale.x;
+        for (var i = 0; i < buttonLights.Length; i++)
+            buttonLights[i].range *= scalar;
     }
 
     void HandleSequence() {
@@ -96,19 +100,6 @@ public class simonScramblesScript : MonoBehaviour {
         }
     }
 
-    void OnActivate()
-    {
-        Debug.LogFormat("[Simon Scrambles #{0}] Colorblind Mode: {1}", moduleId, colorblindActive);
-        if (colorblindActive)
-        {
-            foreach(GameObject text in colorblindTexts)
-            {
-                text.SetActive(true);
-            }
-        }
-        HandleSequence();
-    }
-
     IEnumerator LightSequence() {
         for (var i = 0; i < 10; i++) {
             StartCoroutine(FlashLight(sequence[i]));
@@ -129,7 +120,7 @@ public class simonScramblesScript : MonoBehaviour {
     }
 
     void KeyPressed(KMSelectable key) {
-        bombAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, transform);
+        bombAudio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.ButtonPress, key.transform);
 
         if (moduleSolved) return;
 
@@ -171,57 +162,34 @@ public class simonScramblesScript : MonoBehaviour {
 
     //twitch plays
     #pragma warning disable 414
-    private readonly string TwitchHelpMessage = @"!{0} RBGY [Presses the buttons red, blue, green, and yellow in that order] | !{0} colorblind [Toggles colorblind mode]";
+    private readonly string TwitchHelpMessage = @"!{0} RBGY [Presses the buttons red, blue, green, and yellow in that order]";
     #pragma warning restore 414
 
-    IEnumerator ProcessTwitchCommand(string command) {
-
-        if (Regex.IsMatch(command, @"^\s*colorblind\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
-        {
-            yield return null;
-            Debug.LogFormat("[Simon Scrambles #{0}] Toggled colorblind mode! (TP)", moduleId);
-            if (colorblindActive)
-            {
-                colorblindActive = false;
-                foreach (GameObject text in colorblindTexts)
-                {
-                    text.SetActive(false);
-                }
-            }
-            else
-            {
-                colorblindActive = true;
-                foreach (GameObject text in colorblindTexts)
-                {
-                    text.SetActive(true);
-                }
-            }
-        }
-
+    KMSelectable[] ProcessTwitchCommand(string command)
+    {
         command = command.ToLowerInvariant().Trim();
-        command = command.Replace(" ","");
 
-        if (Regex.IsMatch(command, @"^[(r|y|g|b)]+$")) {
+        if (Regex.IsMatch(command, @"^[(r|y|g|b)]+$"))
+        {
             var pressList = new List<KMSelectable>();
 
-            for (var i = 0; i < command.Length; i++) {
-                if (Regex.IsMatch(command[i].ToString(), @"^(r|y|g|b)$")) {
+            for (var i = 0; i < command.Length; i++)
+            {
+                if (Regex.IsMatch(command[i].ToString(), @"^(r|y|g|b)$"))
+                {
                     pressList.Add(buttons[Array.IndexOf(colorNames, colorNames[Array.FindIndex(colorNames, x => x.ToLowerInvariant().StartsWith(command[i].ToString()))])]);
                 }
             }
 
-            if(pressList.Count > 0)
-            {
-                yield return null;
-                yield return pressList.ToArray();
-            }
+            return (pressList.Count > 0) ? pressList.ToArray() : null;
         }
 
+        return null;
     }
 
     IEnumerator TwitchHandleForcedSolve()
     {
-        for(int i = currentInt; i < 10; i++)
+        for (int i = currentInt; i < 10; i++)
         {
             buttons[colorTable[i, sequence[i]]].OnInteract();
             yield return new WaitForSeconds(0.1f);
